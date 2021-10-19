@@ -1,0 +1,138 @@
+---
+title: "Course Project Practical Machine Learning"
+author: "Rainer Wichmann"
+date: "2021-10-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Loading and Exploration
+
+```{r libraries, }
+library(caret)
+library(AppliedPredictiveModeling)
+```
+
+The data is loaded locally. It is found that "Classe" has 5 possible values, ranging from A to E, each with more than 3000 occurences.
+
+```{r loading, }
+validation20=read.csv("C:/Users/RW/Desktop/TestRepo/Data/pml-testing.csv")
+trainingInput=read.csv("C:/Users/RW/Desktop/TestRepo/Data/pml-training.csv")
+unique(trainingInput$classe)
+table(trainingInput$classe)
+```
+ Columns, representing Data of Variables, with NA are excluded
+
+```{r cleaning NA, }
+
+CleanNA= function(Data){  Data[ , colSums( is.na(Data) ) == 0]  }
+
+validation20NA<-CleanNA(validation20)
+trainingNA<-CleanNA(trainingInput)
+
+```
+
+Variables 1-7 are formal input, containing event number, Name, timestamps and window counters.
+They are not helpful for determining wether the performance was in class A,B,C,D, or E.
+
+```{r cleaningNA, }
+
+CleanIt= function(Data){Data[ -c(1:7) ]  }
+
+
+validation20Clean<-CleanIt(validation20NA)
+trainingClean<-CleanIt(trainingNA)
+
+```
+
+Display the number of variables and events of data in both sets. 
+Structure and content of 20 validation data in validationClean is inspected with function str. It looks acceptable and has 53 variables.
+str reveals, that there are still empty columns in trainingClean. They are all of type chr. 
+
+```{r dimoutput1 }
+dim(validation20Clean)
+str(validation20Clean)
+dim(trainingClean)
+str(trainingClean)
+```
+
+## Data Cleaning
+
+In trainingClean find columns of type chr.
+```{r dimoutput2 }
+nums <- unlist(lapply(trainingClean, is.numeric))
+```
+We store training data excluding Classe in trainingCleanNoClasse.
+The last entry, which finds non-numerics in nums, is for "Classe", since the entrys are A,B,C,D or E. It is still needed, therefore the last entry in nums is defined with TRUE. 
+Then all other variables, are unlisted in trainingClean and it is checked if it has 53 variables.
+
+```{r dimoutput3 }
+trainingCleanNoClasse<- trainingClean[ , nums] 
+nums[length(nums)]=as.logical("TRUE")
+trainingClean <- trainingClean[ , nums]  
+dim(trainingClean)
+
+```
+Maybe there more variables in training Data than necessary for computation.This would reduce the problem size substantially.
+Therefore it is determined how many variables are needed to explain 80% of variance in trainingCleanNoClasse
+
+```{r correlate1 }
+preProcValues <- preProcess(  subset(trainingCleanNoClasse),  method="pca", thresh=0.8)
+preProcValues$dim
+```
+We need all 52 variables to explain 80% of variance. Therefore no PCA, or other correlation avoiding method, is used in the analysis.
+
+## Selection of Classification method spliting up training and testing set
+We have a problem with many (52) variables, which could contribute all together to one classification with 5 possible values. It is possible, that we have to gather the small influences of all variables for the correct classification. Therefore a random forest method is proposed.
+
+A local training set (75%) and local testing set(25%) is defined randomly. The local training set is splitted with crossvalidation for optimization of performance. 
+
+
+```{r gettrainset }
+
+set.seed(62433)
+
+inTrain=createDataPartition(trainingClean$classe,p=3/4)[[1]];
+trainingLocal=trainingClean[inTrain,]
+testingLocal=trainingClean[-inTrain,]
+```
+## Variation of Folding
+Since random forest can be very resource-consuming we try two small k values: 3 and 5
+
+```{r train }
+tr_control_K3=trainControl(method="cv",number=3)
+tr_control_K5=trainControl(method="cv",number=5)
+```
+## Training
+Fit and prediction is performed here.
+```{r traincontrol }
+
+modelRandomForest_K3 <- train(classe ~ ., data = trainingLocal, method = "rf", tr_control=tr_control_K3)
+modelRandomForest_K5 <- train(classe ~ ., data = trainingLocal, method = "rf", tr_control=tr_control_K5)
+
+predRF_K3 <- predict(modelRandomForest_K3 ,testingLocal)
+predRF_K5 <- predict(modelRandomForest_K5 ,testingLocal)
+```
+## Testing and Discussion
+Then we test for performance of both methods
+
+```{r test }
+
+confusionMatrix(predRF_K3, factor(testingLocal$classe))
+confusionMatrix(predRF_K5, factor(testingLocal$classe))
+```
+We see, that the improvement of accuracy is very small, from 0.9957 to 0.9961, if we raise the number of folds from 3 to 5. A further improvement is unlikely.
+Therefore we accept the random forest fit with k=5 as an appropriate method.
+
+## Prediction of 20 Validation samples
+
+We predict the value of 20 Validation samples
+
+```{r pressure, }
+predRF_20<-predict(modelRandomForest_K5 ,validation20)
+predRF_20
+table(predRF_20)
+```
